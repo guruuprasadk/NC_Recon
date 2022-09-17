@@ -22,18 +22,19 @@ from imageViewer import ImageViewer3D
 
 # Read npy data
 device = sp.Device(0)
-folder_path = 'D:/DataSet/FLORET_3HUB/'
-ksp, dcf, csm, cfm, coord, reg, imageShape = load_data(folder_path, device)
+folder_path = 'D:/DataSet/FLORET_3HUB_R4/'
+ksp, dcf, cfm, coord, reg, imageShape = load_data(folder_path, device)
 
 # %%
-grid_img, cg_img  = CGSENSE(ksp, coord, dcf, csm, reg, tol = 1e-5, labmda = 0.01, max_iter=100,
-           device=device).run()
-
-grid_img = np.sum((grid_img * csm) * cfm, 0)
-cg_img = np.sum((cg_img * csm) * cfm, 0)
+grid_img, cg_img  = CGSENSE(ksp, coord, dcf, cfm, reg, tol = 1e-5, labmda = 0.05, max_iter=100, device=device).run()
 # %%
 fig, ax = plt.subplots(1, 1)
-tracker = ImageViewer3D(ax, cg_img, 'Grid')
+tracker = ImageViewer3D(ax, grid_img, 'Grid')
+fig.canvas.mpl_connect('scroll_event', tracker.on_scroll)
+plt.show()
+# %%
+fig, ax = plt.subplots(1, 1)
+tracker = ImageViewer3D(ax, cg_img, 'cg_img')
 fig.canvas.mpl_connect('scroll_event', tracker.on_scroll)
 plt.show()
 # %%

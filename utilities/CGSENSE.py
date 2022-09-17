@@ -1,17 +1,26 @@
 import sigpy as sp
+import numpy as np
 
 class CGSENSE(object):
-    def __init__(self, ksp, coord, dcf, csm, reg, tol=1e-6, labmda = 0.05, max_iter=100,
+    def __init__(self, ksp, coord, dcf, cfm, reg, tol=1e-6, labmda = 0.05, max_iter=100,
                  device=sp.cpu_device):
         
-        # Copy Data to GPU         
+        # Copy Data to GPU       
+        
+        # Intensity normalization
+        B1_mag = np.sum(np.abs(cfm * np.conj(cfm)), axis=0)
+        B1_mag = np.sqrt(np.clip(B1_mag, a_min=1e-5, a_max=None))            
+        cfm = np.conj(cfm) / B1_mag
+        
+        self.I = np.clip(B1_mag, a_min=1e-5, a_max=None)
 
         self.device = sp.Device(device)
         self.xp = device.xp
         
        
-        self.csm = sp.to_device(csm, device=device)
+        self.cfm = sp.to_device(cfm, device=device)
        
+        reg = 1 / np.clip(reg, a_min=1e-1, a_max=None)
         self.reg = sp.to_device(reg, device=device)
         
         self.tol = tol
@@ -20,7 +29,7 @@ class CGSENSE(object):
         self.ksp = sp.to_device(ksp, device=device)
         
         # Prepare Coordinates for Gridding    
-        img_shape = csm[1:].shape
+        img_shape = cfm[1:].shape
 
         coord[...,0] *= img_shape[-1] 
         coord[...,1] *= img_shape[-2]
@@ -48,7 +57,7 @@ class CGSENSE(object):
         with self.device:
            
             mrimg_adj = sp.nufft_adjoint(self.ksp * self.dcf, self.coord)            
-            self.mrimg_adj = self.xp.sum(mrimg_adj *  self.xp.conj(self.csm), axis= 0)            
+            self.mrimg_adj = self.xp.sum(mrimg_adj *  self.xp.conj(self.cfm), axis= 0)            
             #pl.ImagePlot(self.mrimg_adj[:,:,100], title='GPU Gridding')
 
     def _do_cg(self, d_in, r_in, x_in, Ad_in):
@@ -101,8 +110,8 @@ class CGSENSE(object):
             i += 1
             print("\tSENSE Iteration: ", i, " cg_res: ", cg_res)
             
-            Ad = sp.nufft_adjoint(self.dcf * sp.nufft(d * self.csm, self.coord), self.coord) 
-            Ad = self.xp.sum(Ad*self.xp.conj(self.csm), axis=0)
+            Ad = sp.nufft_adjoint(self.dcf * sp.nufft(d * self.cfm, self.coord), self.coord) 
+            Ad = self.xp.sum(Ad*self.xp.conj(self.cfm), axis=0)
             
             # regularization
             Ad += self.labmda * (1 + self.reg) * d
@@ -115,4 +124,10 @@ class CGSENSE(object):
                 
             cg_res = self.xp.abs(rHr / rHr0)
        
-        return sp.to_device(self.mrimg_adj, device=sp.Device(-1)), sp.to_device(x_last, device=sp.Device(-1))
+        grid_img = sp.to_device(self.mrimg_adj, device=sp.Device(-1))
+        grid_img *= self.I
+       
+        cg_img = sp.to_device(x_last, device=sp.Device(-1))
+        cg_img *= self.I
+        
+        return grid_img, cg_img
